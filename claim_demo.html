@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claim Demo - MetaMask Integration</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+            text-align: center;
+        }
+
+        .contract-info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            word-break: break-all;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .status.disconnected {
+            background: #fee;
+            color: #c33;
+            border: 2px solid #fcc;
+        }
+
+        .status.connected {
+            background: #efe;
+            color: #3c3;
+            border: 2px solid #cfc;
+        }
+
+        .status.processing {
+            background: #fef7e0;
+            color: #f39c12;
+            border: 2px solid #f8e08e;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-connect {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-claim {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .wallet-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+
+        .wallet-info p {
+            margin: 8px 0;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .wallet-info strong {
+            color: #1976d2;
+        }
+
+        .log {
+            background: #263238;
+            color: #a5d6a7;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .log-error {
+            color: #ef5350;
+        }
+
+        .log-success {
+            color: #66bb6a;
+        }
+
+        .log-info {
+            color: #42a5f5;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .network-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .network-mainnet { background: #4caf50; color: white; }
+        .network-testnet { background: #ff9800; color: white; }
+        .network-unknown { background: #9e9e9e; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🦊 Claim Demo</h1>
+        
+        <div class="contract-info">
+            <strong>合约地址:</strong><br>
+            <code>0x000008e4e9597890e93F60B4D8DD3610e1700000</code>
+        </div>
+
+        <div id="status" class="status disconnected">
+            未连接钱包
+        </div>
+
+        <button id="connectBtn" class="btn-connect">
+            连接 MetaMask
+        </button>
+
+        <div id="walletInfo" class="wallet-info" style="display: none;">
+            <p><strong>钱包地址:</strong> <span id="walletAddress">-</span></p>
+            <p><strong>网络:</strong> <span id="networkName">-</span><span id="networkBadge"></span></p>
+            <p><strong>Chain ID:</strong> <span id="chainId">-</span></p>
+            <p><strong>钱包余额:</strong> <span id="walletBalance">-</span> ETH</p>
+        </div>
+
+        <button id="claimBtn" class="btn-claim" disabled>
+            调用 Claim 方法 (发送所有余额)
+        </button>
+
+        <div id="log" class="log"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <script>
+        // 合约地址
+        const CONTRACT_ADDRESS = '0x000008e4e9597890e93F60B4D8DD3610e1700000';
+        
+        // 基本的 ABI（只包含 claim 方法）
+        const CONTRACT_ABI = [
+            {
+                "name": "claim",
+                "type": "function",
+                "inputs": [],
+                "outputs": [],
+                "stateMutability": "payable"
+            }
+        ];
+
+        // 网络名称映射
+        const NETWORK_NAMES = {
+            '1': 'Ethereum Mainnet',
+            '5': 'Goerli Testnet',
+            '11155111': 'Sepolia Testnet',
+            '56': 'BSC Mainnet',
+            '97': 'BSC Testnet',
+            '137': 'Polygon Mainnet',
+            '80001': 'Mumbai Testnet',
+            '42161': 'Arbitrum One',
+            '10': 'Optimism',
+            '8453': 'Base'
+        };
+
+        let provider = null;
+        let signer = null;
+        let contract = null;
+        let userAddress = null;
+        let userBalance = null;
+
+        // DOM 元素
+        const statusDiv = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const claimBtn = document.getElementById('claimBtn');
+        const walletInfo = document.getElementById('walletInfo');
+        const logDiv = document.getElementById('log');
+
+        // 日志函数
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = `log-${type}`;
+            logDiv.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        // 更新状态
+        function updateStatus(message, type = 'disconnected') {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        // 检查 MetaMask
+        function checkMetaMask() {
+            if (typeof window.ethereum === 'undefined') {
+                updateStatus('❌ 请安装 MetaMask', 'disconnected');
+                log('MetaMask 未安装', 'error');
+                return false;
+            }
+            log('MetaMask 已检测到', 'success');
+            return true;
+        }
+
+        // 连接钱包
+        async function connectWallet() {
+            if (!checkMetaMask()) return;
+
+            try {
+                log('正在连接钱包...', 'info');
+                updateStatus('连接中...', 'processing');
+
+                // 请求账户访问
+                const accounts = await window.ethereum.request({ 
+                    method: 'eth_requestAccounts' 
+                });
+
+                userAddress = accounts[0];
+                
+                // 创建 provider 和 signer
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                signer = provider.getSigner();
+                
+                // 创建合约实例
+                contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+                // 获取网络信息
+                const network = await provider.getNetwork();
+                const chainId = network.chainId;
+                const networkName = NETWORK_NAMES[chainId.toString()] || '未知网络';
+                const isTestnet = networkName.includes('Testnet');
+
+                // 获取钱包余额
+                userBalance = await provider.getBalance(userAddress);
+                const balanceInEth = ethers.utils.formatEther(userBalance);
+
+                // 更新 UI
+                document.getElementById('walletAddress').textContent = 
+                    userAddress.slice(0, 6) + '...' + userAddress.slice(-4);
+                document.getElementById('networkName').textContent = networkName;
+                document.getElementById('chainId').textContent = chainId;
+                document.getElementById('walletBalance').textContent = parseFloat(balanceInEth).toFixed(6);
+                
+                const badge = document.getElementById('networkBadge');
+                badge.className = `network-badge ${isTestnet ? 'network-testnet' : 'network-mainnet'}`;
+                badge.textContent = isTestnet ? '测试网' : '主网';
+
+                walletInfo.style.display = 'block';
+                connectBtn.textContent = '已连接';
+                connectBtn.disabled = true;
+                claimBtn.disabled = false;
+
+                updateStatus('✅ 钱包已连接', 'connected');
+                log(`钱包已连接: ${userAddress}`, 'success');
+                log(`网络: ${networkName} (Chain ID: ${chainId})`, 'info');
+                log(`钱包余额: ${balanceInEth} ETH`, 'info');
+
+            } catch (error) {
+                updateStatus('❌ 连接失败', 'disconnected');
+                log(`连接失败: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        // 调用 Claim 方法
+        async function callClaim() {
+            if (!contract) {
+                log('请先连接钱包', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('⏳ 正在发送交易...', 'processing');
+                claimBtn.innerHTML = '<span class="spinner"></span> 处理中...';
+                claimBtn.disabled = true;
+
+                log('正在调用 claim() 方法...', 'info');
+                
+                // 获取当前最新余额
+                const currentBalance = await provider.getBalance(userAddress);
+                const balanceInEth = ethers.utils.formatEther(currentBalance);
+                log(`当前余额: ${balanceInEth} ETH`, 'info');
+
+                // 预估 gas 费用 (预留 0.01 ETH 作为 gas，如果余额不足则全部发送)
+                const gasReserve = ethers.utils.parseEther("0.01");
+                let valueToSend;
+                
+                if (currentBalance.gt(gasReserve)) {
+                    valueToSend = currentBalance.sub(gasReserve);
+                    const sendAmount = ethers.utils.formatEther(valueToSend);
+                    log(`将发送: ${sendAmount} ETH (预留 0.01 ETH 作为 gas)`, 'info');
+                } else {
+                    valueToSend = currentBalance;
+                    log(`余额较少，将发送全部: ${balanceInEth} ETH`, 'info');
+                }
+
+                log('等待用户在 MetaMask 中确认...', 'info');
+
+                // 调用合约方法，附带所有余额
+                const tx = await contract.claim({
+                    value: valueToSend
+                });
+                
+                log(`交易已发送: ${tx.hash}`, 'success');
+                log(`已发送 ${ethers.utils.formatEther(valueToSend)} ETH`, 'success');
+                log('等待区块确认...', 'info');
+
+                updateStatus('⏳ 等待区块确认...', 'processing');
+
+                // 等待交易确认
+                const receipt = await tx.wait();
+
+                log(`交易成功! Gas 使用: ${receipt.gasUsed.toString()}`, 'success');
+                log(`区块号: ${receipt.blockNumber}`, 'info');
+                log(`查看交易: https://etherscan.io/tx/${tx.hash}`, 'info');
+
+                // 刷新余额
+                const newBalance = await provider.getBalance(userAddress);
+                const newBalanceInEth = ethers.utils.formatEther(newBalance);
+                document.getElementById('walletBalance').textContent = parseFloat(newBalanceInEth).toFixed(6);
+                log(`新余额: ${newBalanceInEth} ETH`, 'info');
+
+                updateStatus('✅ Claim 成功!', 'connected');
+                claimBtn.innerHTML = '✅ Claim 成功';
+
+                setTimeout(() => {
+                    claimBtn.innerHTML = '调用 Claim 方法 (发送所有余额)';
+                    claimBtn.disabled = false;
+                }, 3000);
+
+            } catch (error) {
+                updateStatus('❌ 交易失败', 'connected');
+                claimBtn.innerHTML = '调用 Claim 方法 (发送所有余额)';
+                claimBtn.disabled = false;
+
+                if (error.code === 4001) {
+                    log('用户拒绝了交易', 'error');
+                } else if (error.code === -32603) {
+                    log(`交易失败: ${error.message}`, 'error');
+                } else {
+                    log(`错误: ${error.message}`, 'error');
+                }
+                console.error(error);
+            }
+        }
+
+        // 监听账户变化
+        if (typeof window.ethereum !== 'undefined') {
+            window.ethereum.on('accountsChanged', (accounts) => {
+                if (accounts.length === 0) {
+                    log('账户已断开连接', 'error');
+                    location.reload();
+                } else {
+                    log('账户已切换，正在重新连接...', 'info');
+                    location.reload();
+                }
+            });
+
+            window.ethereum.on('chainChanged', (chainId) => {
+                log('网络已切换，正在刷新页面...', 'info');
+                location.reload();
+            });
+        }
+
+        // 事件监听
+        connectBtn.addEventListener('click', connectWallet);
+        claimBtn.addEventListener('click', callClaim);
+
+        // 页面加载时检查
+        window.addEventListener('load', () => {
+            checkMetaMask();
+            log('页面已加载，准备连接 MetaMask', 'info');
+        });
+    </script>
+</body>
+</html>
+
